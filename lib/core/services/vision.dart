@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+
+import '../utils/scene_hint.dart';
 
 /// Result of asking "is there actually a plant in this photo?"
 class PlantCheck {
@@ -27,37 +30,119 @@ class PlantCheck {
 /// a few thousand reviewed submissions to learn from, and even then the real
 /// deterrent is credit vesting rather than the model.
 class Vision {
-  Vision();
+  /// [labelSource] replaces the ML Kit labeller; used by tests.
+  Vision({Future<List<ScoredLabel>> Function(String path)? labelSource})
+    : _source = labelSource;
+
+  final Future<List<ScoredLabel>> Function(String path)? _source;
+
+  // The review screen and the later submission both label the same photo; the
+  // last result is kept so ML Kit runs once per photo, not twice.
+  String? _cachedPath;
+  List<ScoredLabel>? _cachedLabels;
+
+  Future<List<ScoredLabel>> _labelsFor(String path) async {
+    if (_cachedPath == path && _cachedLabels != null) return _cachedLabels!;
+    final labels = await (_source ?? _mlKitLabels)(path);
+    _cachedPath = path;
+    _cachedLabels = labels;
+    return labels;
+  }
+
+  Future<List<ScoredLabel>> _mlKitLabels(String path) async {
+    final results = await _labels.processImage(InputImage.fromFilePath(path));
+    return [for (final r in results) ScoredLabel(r.label, r.confidence)];
+  }
+
+  /// Raw ML Kit labels (or the injected [labelSource]) for a photo, with their
+  /// confidence scores.
+  ///
+  /// Exposed for the debug-only TreeGuard test bench (`lib/dev/`); production
+  /// code uses [analyseScene] or [checkPlant] instead. Shares the one-photo
+  /// cache with both, so calling this alongside them for the same path never
+  /// re-runs ML Kit twice.
+  Future<List<ScoredLabel>> rawLabels(String imagePath) =>
+      _labelsFor(imagePath);
+
+  /// Advisory scene hint for the photo review screen. Never throws.
+  Future<SceneAnalysis> analyseScene(String imagePath) async {
+    try {
+      final labels = await _labelsFor(imagePath);
+      final scene = classifyScene(labels);
+      // Debug builds only: lets on-device testing record the raw labels.
+      if (kDebugMode) {
+        debugPrint(
+          'TreeGuard scene: ${scene.hint.name} labels=['
+          '${labels.map((l) => '${l.label}:${l.confidence.toStringAsFixed(2)}').join(', ')}]',
+        );
+      }
+      return scene;
+    } catch (e) {
+      if (kDebugMode) debugPrint('TreeGuard scene: unavailable ($e)');
+      return SceneAnalysis.unavailable;
+    }
+  }
 
   // A generous threshold: ML Kit's own labels are the coarse filter, and the
   // server applies the real cutoff from app_config.
   ImageLabeler? _labeler;
   TextRecognizer? _recognizer;
 
-  ImageLabeler get _labels =>
-      _labeler ??= ImageLabeler(options: ImageLabelerOptions(confidenceThreshold: 0.4));
+  ImageLabeler get _labels => _labeler ??= ImageLabeler(
+    options: ImageLabelerOptions(confidenceThreshold: 0.4),
+  );
 
   TextRecognizer get _text =>
       _recognizer ??= TextRecognizer(script: TextRecognitionScript.latin);
 
   /// Labels that indicate real vegetation in frame.
   static const _plantLabels = {
-    'plant', 'tree', 'leaf', 'flower', 'grass', 'forest', 'woody plant',
-    'flowerpot', 'houseplant', 'garden', 'vegetation', 'branch', 'shrub',
-    'soil', 'bud', 'sapling', 'moss', 'fern', 'palm tree', 'bamboo',
-    'lawn', 'plantation', 'jungle', 'nature', 'flora',
+    'plant',
+    'tree',
+    'leaf',
+    'flower',
+    'grass',
+    'forest',
+    'woody plant',
+    'flowerpot',
+    'houseplant',
+    'garden',
+    'vegetation',
+    'branch',
+    'shrub',
+    'soil',
+    'bud',
+    'sapling',
+    'moss',
+    'fern',
+    'palm tree',
+    'bamboo',
+    'lawn',
+    'plantation',
+    'jungle',
+    'nature',
+    'flora',
   };
 
   /// Labels that suggest the photo is of a screen rather than a real scene.
   static const _screenLabels = {
-    'screenshot', 'monitor', 'television', 'computer', 'laptop', 'display',
-    'mobile phone', 'screen', 'website', 'text', 'document', 'paper',
+    'screenshot',
+    'monitor',
+    'television',
+    'computer',
+    'laptop',
+    'display',
+    'mobile phone',
+    'screen',
+    'website',
+    'text',
+    'document',
+    'paper',
   };
 
   Future<PlantCheck> checkPlant(String imagePath) async {
     try {
-      final input = InputImage.fromFilePath(imagePath);
-      final results = await _labels.processImage(input);
+      final results = await _labelsFor(imagePath);
       if (results.isEmpty) return PlantCheck.empty;
 
       final names = <String>[];

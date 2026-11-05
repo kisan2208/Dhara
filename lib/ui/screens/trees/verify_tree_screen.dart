@@ -10,7 +10,7 @@ import '../../../core/utils/errors.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../data/models/tree.dart';
 import '../../../state/trees_controller.dart';
-import '../../widgets/camera_capture.dart';
+import '../../widgets/photo_review.dart';
 import '../../widgets/celebrate.dart';
 import '../../widgets/common.dart';
 
@@ -126,7 +126,7 @@ class _VerifyTreeScreenState extends ConsumerState<VerifyTreeScreen> {
     final fix = _fix;
     if (fix == null || !_canCapture) return;
 
-    final path = await CameraCaptureScreen.push(
+    final path = await capturePhotoWithReview(
       context,
       title: 'Photograph ${_tree.displayName}',
       hint: 'A fresh photo from where you are standing. Reusing an old photo '

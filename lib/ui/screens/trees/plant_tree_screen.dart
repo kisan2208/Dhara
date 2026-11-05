@@ -12,7 +12,7 @@ import '../../../core/utils/errors.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../data/models/tree.dart';
 import '../../../state/trees_controller.dart';
-import '../../widgets/camera_capture.dart';
+import '../../widgets/photo_review.dart';
 import '../../widgets/celebrate.dart';
 import '../../widgets/common.dart';
 import '../../widgets/gps_stamp.dart';
@@ -203,7 +203,7 @@ class _PlantTreeScreenState extends ConsumerState<PlantTreeScreen> {
     final fix = _fix;
     if (species == null || fix == null || _submitting) return;
 
-    final path = await CameraCaptureScreen.push(
+    final path = await capturePhotoWithReview(
       context,
       title: 'Photograph the sapling',
       hint: 'Get the whole plant in frame, with the ground visible. '
