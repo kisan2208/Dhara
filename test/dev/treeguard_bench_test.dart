@@ -16,6 +16,16 @@ import 'package:dhara/dev/treeguard_bench_screen.dart';
 
 ScoredLabel _l(String n, double c) => ScoredLabel(n, c);
 
+/// Real headroom for `runBenchOne`'s genuine OS file I/O (`File.readAsBytes()`)
+/// plus decoding/analysing two tiny JPEGs, used inside `tester.runAsync()`
+/// below. Neither step is driven by the fake test clock, so this is a timing
+/// race rather than a deterministic wait; 200ms was observed to lose that
+/// race once (cause not reproduced in 8 further isolated and full-file runs,
+/// so likely a transient load spike rather than a change in behaviour). The
+/// actual work here is low-single-digit milliseconds even cold, so this
+/// margin stays effectively instant for a human while giving far more room.
+const _realIoHeadroom = Duration(milliseconds: 1500);
+
 /// A small, decodable, non-blurry JPEG — same recipe as photo_precheck_test.
 Uint8List _sharpJpeg({int w = 640, int h = 480}) {
   final rnd = math.Random(7);
@@ -306,7 +316,7 @@ void main() {
         await t.tap(find.text('Run selected'));
         // File.readAsBytes() is genuine OS I/O, not driven by the fake test
         // clock, so pumpAndSettle alone cannot be relied on to wait for it.
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await Future<void>.delayed(_realIoHeadroom);
       });
       await t.pumpAndSettle();
 
@@ -336,7 +346,7 @@ void main() {
 
         await t.runAsync(() async {
           await t.tap(find.text('Run selected'));
-          await Future<void>.delayed(const Duration(milliseconds: 200));
+          await Future<void>.delayed(_realIoHeadroom);
         });
         await t.pumpAndSettle();
 
@@ -368,7 +378,7 @@ void main() {
       await t.pumpAndSettle();
       await t.runAsync(() async {
         await t.tap(find.text('Run selected'));
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await Future<void>.delayed(_realIoHeadroom);
       });
       await t.pumpAndSettle();
 

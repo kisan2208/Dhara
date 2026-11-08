@@ -38,9 +38,36 @@ it threw and Flutter painted its full-screen debug error box (translucent dark r
 keeping `lib/main.dart` at its original, launcher-free version (this branch's `main.dart` == the committed one).
 Verified on a Samsung SM-E156B: Home/Trees/Scan/Rewards/You all render normally; no release build was ever affected.
 
-## Known issues / not done
-- Excluded failing test: `test/dev/treeguard_launcher_test.dart` (tap test) targets the removed launcher and times
-  out. It is NOT part of this checkpoint. Delete or rewrite it alongside any future bench entry point.
+## Test stabilization (this session)
+Both fixes are test-only; no app code (lib/) or lib/main.dart changed.
+
+- `test/dev/treeguard_launcher_test.dart` ("tapping the launcher..."): was NOT obsolete — it correctly exercises the
+  current, fixed launcher architecture (navigatorKey-based push, no Tooltip). It failed because `pumpAndSettle()`
+  can never converge while the pushed `TreeGuardBenchScreen()` is loading: that screen's `_loadImages()` calls the
+  real, unmocked path_provider plugin, and shows an indeterminate `CircularProgressIndicator` while waiting — both
+  keep scheduling frames forever under `flutter test`. Fixed by replacing `pumpAndSettle()` after the tap with two
+  bounded `pump()` calls (sufficient for the route's push transition) and asserting on the bench's static AppBar
+  title, which renders before any async load completes. Verified stable over 4 repeated runs.
+- `test/dev/treeguard_bench_test.dart` ("running selected files...") intermittent failure: investigated, not
+  reliably reproduced (8/8 clean in isolation, 3/3 clean full-suite runs this session) — the one earlier failure was
+  likely a transient system-load spike, not a change in behaviour. The underlying mechanism is a real timing race
+  regardless (`runAsync` + a fixed real-wall-clock delay racing `File.readAsBytes()`, not driven by the fake test
+  clock): widened the delay from 200ms to 1500ms (shared `_realIoHeadroom` constant) in all three places using this
+  pattern, documented why, left as a fixed delay rather than a polling loop (Flutter's own guidance is against
+  calling `pump()` inside `runAsync`).
+- Branch-switch data-loss note: switching from `feature/treeguard-flutter` back to `feature/treeguard-local` and
+  back again deleted the (then-untracked) P0/bench lib files from the local working tree, because committing them
+  on `feature/treeguard-flutter` made git treat them as removable when returning to a branch that doesn't track
+  them. Nothing was lost (all content is committed on `feature/treeguard-flutter`/origin), but this is a trap for
+  future cross-branch work on this repo: untracked files that get committed on one branch will vanish from a
+  sibling branch's working tree on next switch.
+
+Results: `flutter analyze` no issues. Full `flutter test`: 327 pass, 2 pre-existing skips, 0 fail — stable across
+3 consecutive runs. No backend/Appwrite/database/API files touched. `lib/main.dart` unchanged (still launcher-free).
+Nothing committed, pushed or deployed this session; awaiting approval.
+
+- ~~Excluded failing test: `test/dev/treeguard_launcher_test.dart`~~ — fixed in place this session, see
+  "Test stabilization" above. No longer excluded or obsolete.
 - Scene/quality thresholds are uncalibrated; need a labelled photo set before any accuracy claim.
 - Not device-tested: camera-permission-denied path; local repeat-photo warning (needs a real submission).
 - Unrelated, uninvestigated: Trees header "2 Planted / 2 Alive" vs list "No trees yet".
