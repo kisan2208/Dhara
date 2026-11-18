@@ -45,14 +45,23 @@ ScannedKind classifyScan(String raw) {
 /// completes a handover immediately; scanning items collects them so a batch can
 /// be passed on in one go.
 class ScanScreen extends ConsumerStatefulWidget {
-  const ScanScreen({super.key});
+  const ScanScreen({super.key, this.active = true});
+
+  /// Whether this tab is the one on screen. The camera only runs while it is.
+  final bool active;
 
   @override
   ConsumerState<ScanScreen> createState() => _ScanScreenState();
 }
 
-class _ScanScreenState extends ConsumerState<ScanScreen> {
+class _ScanScreenState extends ConsumerState<ScanScreen>
+    with WidgetsBindingObserver {
+  // Not auto-started: the dashboard builds every tab up front, so starting on
+  // build would switch the camera on (and prompt for permission) the moment
+  // the app opened, and keep it scanning behind the Home tab. [_syncCamera]
+  // starts it only while this tab is visible and the app is in the foreground.
   final _controller = MobileScannerController(
+    autoStart: false,
     detectionSpeed: DetectionSpeed.normal,
     formats: const [BarcodeFormat.qrCode, BarcodeFormat.code128],
   );
@@ -62,9 +71,72 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   bool _torch = false;
   bool _busy = false;
+  bool _foreground = true;
+  bool _disposed = false;
+
+  /// Start/stop calls are chained so a stop never races a start in progress
+  /// (the controller throws if asked to start while it is still starting).
+  Future<void> _cameraOps = Future<void>.value();
+
+  /// A code that was just refused, or a token that was just claimed. The camera
+  /// re-reads whatever it is pointed at several times a second, and without
+  /// this a single bad code would repeat its error message in a loop.
+  String? _cooldownValue;
+  DateTime _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // After the first frame, so the MobileScanner widget has attached itself
+    // to the controller before it is asked to start.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncCamera());
+  }
+
+  @override
+  void didUpdateWidget(covariant ScanScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) _syncCamera();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The widget only manages the lifecycle itself when it owns the
+    // controller; with our own controller it is our job.
+    final foreground = state == AppLifecycleState.resumed;
+    if (foreground == _foreground) return;
+    _foreground = foreground;
+    _syncCamera();
+  }
+
+  void _syncCamera() {
+    _cameraOps = _cameraOps.then((_) async {
+      if (_disposed) return;
+      final want = widget.active && _foreground;
+      try {
+        if (want) {
+          await _controller.start();
+        } else {
+          await _controller.stop();
+          if (_torch && mounted) setState(() => _torch = false);
+        }
+      } catch (_) {
+        // Camera errors are shown by the scanner's own error view. Catching
+        // everything also keeps this chain alive: one failed step must not
+        // stop every later start/stop from running.
+      }
+    });
+  }
+
+  void _coolDown(String value, Duration duration) {
+    _cooldownValue = value;
+    _cooldownUntil = DateTime.now().add(duration);
+  }
 
   @override
   void dispose() {
+    _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
   }
@@ -72,7 +144,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   Future<void> _onDetect(BarcodeCapture capture) async {
     // Ignore everything while a claim is in flight: the camera keeps emitting
     // the same code several times a second and would fire duplicate requests.
-    if (_busy) return;
+    if (_busy || !widget.active) return;
 
     final raw = capture.barcodes
         .map((b) => b.rawValue)
@@ -81,6 +153,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     if (raw.isEmpty) return;
 
     final value = raw.trim().toUpperCase();
+    if (value == _cooldownValue && DateTime.now().isBefore(_cooldownUntil)) {
+      return;
+    }
 
     switch (classifyScan(value)) {
       case ScannedKind.handoverToken:
@@ -90,6 +165,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         Haptics.select();
         setState(() => _basket.add(value));
       case ScannedKind.unknown:
+        _coolDown(value, const Duration(seconds: 3));
         Haptics.warn();
         if (mounted) {
           showSnack(context, 'That is not a Dhara code.', isError: true);
@@ -113,6 +189,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       Haptics.error();
       showSnack(context, friendlyMessage(e), isError: true);
     } finally {
+      // Whether it worked or not, the same token is still in front of the
+      // camera, and a second claim of it can only be refused.
+      _coolDown(token, const Duration(seconds: 5));
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -129,9 +208,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           .issue(List.of(_basket));
       if (!mounted) return;
 
-      // The basket has been locked server-side; clear it so the same items
-      // cannot be queued into a second handover.
-      setState(_basket.clear);
+      // The handed-over items are locked server-side; take them out of the
+      // basket so they cannot be queued into a second handover. Items the
+      // server refused stay in the basket, and the user is told why, instead
+      // of disappearing as if they had been handed over too.
+      final sent = token.items.toSet();
+      setState(() {
+        if (sent.isEmpty) {
+          _basket.clear();
+        } else {
+          _basket.removeWhere(sent.contains);
+        }
+      });
+      if (token.rejected.isNotEmpty) {
+        Haptics.warn();
+        showSnack(
+          context,
+          token.rejected.length == 1
+              ? 'Not included: ${token.rejected.first}'
+              : '${token.rejected.length} items were not included and are '
+                  'still in your basket. ${token.rejected.first}',
+          isError: true,
+        );
+      }
       await HandoverScreen.push(context, token);
     } catch (e) {
       if (!mounted) return;

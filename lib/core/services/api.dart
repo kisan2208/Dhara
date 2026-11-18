@@ -139,12 +139,14 @@ class Api {
 
   // --- Profile -------------------------------------------------------------
 
-  /// Creates the profile row on first login. Idempotent server-side.
+  /// Creates the profile row on first login. Idempotent server-side, so it is
+  /// safe to retry once when a cold function runtime gives no answer: without
+  /// that, a brand-new user's first sign-in failed after the code was accepted.
   Future<Map<String, dynamic>> bootstrapProfile({
     required String name,
     String? referredBy,
   }) =>
-      post('/profile/bootstrap', {
+      postIdempotent('/profile/bootstrap', {
         'name': name,
         if (referredBy != null && referredBy.isNotEmpty) 'referredBy': referredBy,
       });

@@ -24,12 +24,12 @@ class Validate {
     return null;
   }
 
-  /// Appwrite requires 8 characters minimum.
+  /// Appwrite requires 8 to 256 characters.
   static String? password(String? value) {
     final v = value ?? '';
     if (v.isEmpty) return 'Choose a password';
     if (v.length < 8) return 'Use at least 8 characters';
-    if (v.length > 265) return 'That password is too long';
+    if (v.length > 256) return 'That password is too long';
     return null;
   }
 

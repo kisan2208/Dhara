@@ -170,16 +170,27 @@ class Tree extends Equatable {
 
   bool get isFullyVested => verificationCount >= vestingMonths;
 
-  /// True when the monthly window is open right now.
+  /// True when a check-in can be made now.
+  ///
+  /// Only the opening date is enforced, because that is all the server
+  /// enforces (`routes/tree.js` refuses a check-in before `nextVerifyAfter`
+  /// and nothing after `verifyWindowEnd`). Hiding the button once the window
+  /// closed locked the tree out of check-ins for good, while the server would
+  /// still have accepted one. A check-in after the window is shown as [isLate].
   bool get isVerifiable {
     if (!status.countsAsLiving && status != TreeStatus.missed) return false;
     final now = DateTime.now();
     final opens = nextVerifyAfter;
     if (opens == null) return true;
     if (now.isBefore(opens)) return false;
-    final closes = verifyWindowEnd;
-    if (closes != null && now.isAfter(closes)) return false;
     return true;
+  }
+
+  /// A check-in is due and the suggested window has passed. Display only: the
+  /// server applies the same credit rules to a late check-in as to any other.
+  bool get isLate {
+    final closes = verifyWindowEnd;
+    return closes != null && isVerifiable && DateTime.now().isAfter(closes);
   }
 
   Duration? get untilVerifyOpens {

@@ -89,7 +89,12 @@ final myRedemptionsProvider = FutureProvider<List<Redemption>>((ref) async {
   return ref.watch(repositoryProvider).myRedemptions(userId);
 });
 
-final creditHistoryProvider = FutureProvider<List<CreditEntry>>((ref) async {
+/// Auto-disposed so it is read fresh each time the history screen opens.
+/// Credits move from many places (planting, check-ins, handovers, badge
+/// bonuses, refunds), and a long-lived cache showed the old ledger next to the
+/// new balance unless each of them remembered to invalidate it.
+final creditHistoryProvider =
+    FutureProvider.autoDispose<List<CreditEntry>>((ref) async {
   final userId = ref.watch(currentUserIdProvider);
   if (userId == null) return const [];
   return ref.watch(repositoryProvider).ledger(userId);
@@ -178,12 +183,19 @@ class RewardsController extends Notifier<void> {
     await ref.read(authControllerProvider.notifier).refreshProfile();
 
     final alreadyLinked = data['alreadyLinked'] == true;
+    final verified = data['verified'] == true ||
+        (alreadyLinked && _statusOf(data['account']) == 'verified');
     return BillSubmission(
-      verified: data['verified'] == true ||
-          (alreadyLinked && _statusOf(data['account']) == 'verified'),
+      verified: verified,
+      // A server that predates re-evaluation answers a resubmission with the
+      // old record and no message. Saying "sent for review" then would be
+      // false: the new photo was not looked at.
       message: (data['message'] ??
               (alreadyLinked
-                  ? 'That account is already linked to you.'
+                  ? (verified
+                      ? 'This account is already verified.'
+                      : 'This consumer number is already on file and still '
+                          'being reviewed. Your new photo was not added.')
                   : 'Submitted for review.'))
           as String,
       matchScore: (data['matchScore'] as num?)?.toDouble() ?? 0,

@@ -87,6 +87,12 @@ class FakeLocationBackend extends LocationBackend {
   @override
   Future<Position?> lastKnownPosition() async => cached;
 
+  /// What the person chose: precise, or Android's "Approximate".
+  LocationAccuracyStatus accuracy = LocationAccuracyStatus.precise;
+
+  @override
+  Future<LocationAccuracyStatus> accuracyStatus() async => accuracy;
+
   @override
   Stream<Position> positionStream(LocationSettings settings) {
     lastStreamSettings = settings;

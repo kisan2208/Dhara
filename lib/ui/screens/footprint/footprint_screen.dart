@@ -17,8 +17,12 @@ import '../../widgets/footprint_widgets.dart';
 import 'methodology_screen.dart';
 
 /// The months a footprint can be filed under, newest first.
+///
+/// Counted from the current UTC month, because that is what the server checks
+/// a month against. Using the phone's local date offered a month the server
+/// rejected for the first five and a half hours of every month in India.
 List<String> recentMonthKeys({DateTime? now, int count = 12}) {
-  final n = now ?? DateTime.now();
+  final n = now ?? DateTime.now().toUtc();
   return [
     for (var i = 0; i < count; i++)
       DateFormat('yyyy-MM').format(DateTime.utc(n.year, n.month - i, 1)),
@@ -425,7 +429,19 @@ class _FootprintScreenState extends ConsumerState<FootprintScreen> {
                 _HistoryRow(
                   entry: e,
                   onOpen: () {
-                    setState(() => _month = _months.contains(e.monthKey) ? e.monthKey : _month);
+                    // Only months that can still be filed open into the form.
+                    // An older one used to load its numbers under whichever
+                    // month was selected, and "Update" then overwrote that
+                    // month with them.
+                    if (!_months.contains(e.monthKey)) {
+                      showSnack(
+                        context,
+                        '${monthLabel(e.monthKey)} is too old to edit. '
+                        'Only the last ${_months.length} months can be changed.',
+                      );
+                      return;
+                    }
+                    setState(() => _month = e.monthKey);
                     _load(e);
                   },
                   onDelete: () => _delete(e),

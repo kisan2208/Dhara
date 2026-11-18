@@ -138,22 +138,38 @@ void main() {
     final past = DateTime.now().subtract(const Duration(days: 2));
     final future = DateTime.now().add(const Duration(days: 2));
 
-    test('is verifiable inside an open window', () {
-      expect(tree(opens: past, closes: future).isVerifiable, isTrue);
+    test('is verifiable inside an open window, and not late', () {
+      final t = tree(opens: past, closes: future);
+      expect(t.isVerifiable, isTrue);
+      expect(t.isLate, isFalse);
     });
 
     test('is not verifiable before the window opens', () {
       expect(tree(opens: future).isVerifiable, isFalse);
+      expect(tree(opens: future).isLate, isFalse);
     });
 
-    test('is not verifiable once the window has closed', () {
-      expect(
-        tree(
-          opens: DateTime.now().subtract(const Duration(days: 9)),
-          closes: past,
-        ).isVerifiable,
-        isFalse,
+    // The server only refuses a check-in before the window opens. After the
+    // suggested window it still accepts one, so the app must still offer it;
+    // hiding it locked the tree out of check-ins for good.
+    test('after the window has closed it is still verifiable, marked late', () {
+      final t = tree(
+        opens: DateTime.now().subtract(const Duration(days: 9)),
+        closes: past,
       );
+      expect(t.isVerifiable, isTrue);
+      expect(t.isLate, isTrue);
+      expect(t.untilWindowCloses, isNull);
+    });
+
+    test('a lost tree is never verifiable or late', () {
+      final t = tree(
+        status: TreeStatus.dead,
+        opens: DateTime.now().subtract(const Duration(days: 9)),
+        closes: past,
+      );
+      expect(t.isVerifiable, isFalse);
+      expect(t.isLate, isFalse);
     });
 
     test('a lost tree is never verifiable', () {

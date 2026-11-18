@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -61,6 +63,13 @@ class AuthController extends AsyncNotifier<AuthState> {
   Future<AuthState> build() => _restore();
 
   /// Reuses the persisted Appwrite session if one survives an app restart.
+  ///
+  /// When the server cannot be reached (offline, timeout, a 5xx) this throws
+  /// rather than reporting "signed out". The session stored on the phone is
+  /// probably still good, so sending the user to the welcome screen would make
+  /// them type their password again for a dead network. The router keeps the
+  /// splash screen up while auth has no value, and the splash screen offers a
+  /// retry when this fails.
   Future<AuthState> _restore() async {
     final models.User user;
     try {
@@ -68,8 +77,10 @@ class AuthController extends AsyncNotifier<AuthState> {
     } on AppwriteException catch (e) {
       // 401 just means there is no valid session.
       if (e.code == 401) return const AuthSignedOut();
+      if (isTransientError(e)) rethrow;
       return AuthSignedOut(message: friendlyError(e));
     } catch (e) {
+      if (isTransientError(e)) rethrow;
       return AuthSignedOut(message: friendlyError(e));
     }
 
@@ -78,9 +89,13 @@ class AuthController extends AsyncNotifier<AuthState> {
     // UI — and the next sign-in is refused with user_session_already_exists,
     // which no password can get past. Drop the session so the login screen the
     // user is sent to actually works.
+    //
+    // Except when the failure is only the network: the session is fine, and
+    // deleting it would sign the user out because of a weak signal.
     try {
       return await _resolveSignedIn(user);
     } catch (e) {
+      if (isTransientError(e)) rethrow;
       await _discardSession();
       return AuthSignedOut(message: friendlyMessage(e));
     }
@@ -284,7 +299,33 @@ class AuthController extends AsyncNotifier<AuthState> {
 }
 
 final authControllerProvider =
-    AsyncNotifierProvider<AuthController, AuthState>(AuthController.new);
+    AsyncNotifierProvider<AuthController, AuthState>(
+  AuthController.new,
+  // No automatic retry: a restore that fails offline should show the splash
+  // screen's message and Retry button straight away, not spin for ~40 s while
+  // Riverpod backs off and retries on its own.
+  retry: (_, _) => null,
+);
+
+/// True when an error means "could not reach the server right now" rather
+/// than a real answer from it. Such errors are worth retrying and must never
+/// be treated as the user being signed out.
+///
+/// The Appwrite SDK wraps a dropped connection in an [AppwriteException] with
+/// no status code, so a missing code is the offline case.
+bool isTransientError(Object error) {
+  if (error is AppwriteException) {
+    final code = error.code;
+    return code == null || code == 0 || code == 408 || code == 429 ||
+        code >= 500;
+  }
+  if (error is ApiFailure) return error.code == 'function_error';
+  if (error is TimeoutException) return true;
+  final text = error.toString();
+  return text.contains('SocketException') ||
+      text.contains('ClientException') ||
+      text.contains('Failed host lookup');
+}
 
 /// Convenience reads used across the UI.
 final currentProfileProvider = Provider<Profile?>((ref) {

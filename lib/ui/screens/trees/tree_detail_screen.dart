@@ -130,7 +130,9 @@ class TreeDetailScreen extends ConsumerWidget {
                             VerifyTreeScreen.push(context, tree);
                           },
                           icon: const Icon(Icons.camera_alt_rounded, size: 18),
-                          label: const Text('Check in now'),
+                          label: Text(
+                            tree.isLate ? 'Check in now \u00B7 late' : 'Check in now',
+                          ),
                           style: FilledButton.styleFrom(
                             minimumSize: const Size.fromHeight(52),
                           ),

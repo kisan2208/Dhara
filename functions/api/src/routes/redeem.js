@@ -216,6 +216,94 @@ async function primaryElectricityAccount(databases, userId) {
   }
 }
 
+/** OCR match score at or above which a bill verifies the account on its own. */
+export const VERIFIED_AT = 0.75;
+
+/**
+ * How well the typed consumer number appears in the bill's OCR text, 0..1.
+ * Digits only: OCR frequently mangles spacing and dashes.
+ */
+export function ocrMatchScore(consumerNo, ocrExcerpt) {
+  const digitsOnly = (s) => String(s ?? '').replace(/[^0-9]/g, '');
+  const target = digitsOnly(consumerNo);
+  const haystack = digitsOnly(ocrExcerpt);
+
+  if (target.length >= 6 && haystack.includes(target)) return 1;
+  // Leading digits are often a region prefix the OCR drops.
+  if (target.length >= 8 && haystack.includes(target.slice(-8))) return 0.75;
+  if (target.length >= 6 && haystack.includes(target.slice(-6))) return 0.5;
+  return 0;
+}
+
+/**
+ * The fields a fresh bill photo writes onto an existing, not-yet-verified
+ * account. Pure so the rules are testable: a verified outcome clears the old
+ * rejection, anything else goes back to the review queue with a reason.
+ */
+export function resubmissionPatch(account, input, now = nowIso()) {
+  const matchScore = ocrMatchScore(account.consumerNo, input.ocrExcerpt);
+  const verified = matchScore >= VERIFIED_AT;
+  return {
+    matchScore,
+    verified,
+    patch: {
+      provider: input.provider || account.provider,
+      providerCode:
+        input.providerCode ||
+        account.providerCode ||
+        String(input.provider || '').slice(0, 8).toUpperCase(),
+      ...(input.stateName ? { stateName: input.stateName } : {}),
+      ...(input.holderName ? { holderName: input.holderName } : {}),
+      billFileId: input.billFileId,
+      ocrExcerpt: String(input.ocrExcerpt ?? '').slice(0, 2048),
+      ocrMatchScore: matchScore,
+      status: verified ? 'verified' : 'pending_review',
+      rejectReason: verified
+        ? ''
+        : 'Consumer number not clearly visible in the uploaded bill.',
+      submittedAt: now,
+      verifiedAt: verified ? now : null,
+    },
+  };
+}
+
+async function reevaluate(databases, user, existing, input) {
+  const { matchScore, verified, patch } = resubmissionPatch(existing, input);
+  const account = await databases.updateDocument(
+    DB,
+    COL.electricityAccounts,
+    existing.$id,
+    patch,
+  );
+
+  if (verified) {
+    await databases.updateDocument(DB, COL.profiles, user.$id, {
+      electricityVerified: true,
+      primaryConsumerNo: existing.consumerNo,
+    });
+  }
+
+  await notify(databases, {
+    userId: user.$id,
+    title: verified ? 'Electricity account verified' : 'Bill under review',
+    body: verified
+      ? 'You can now redeem credits against your electricity bill.'
+      : 'We could not read your consumer number on the new photo either. Our team will check within 48 hours.',
+    type: 'system',
+    refId: existing.$id,
+  });
+
+  return {
+    account,
+    verified,
+    matchScore,
+    resubmitted: true,
+    message: verified
+      ? 'Verified from your new bill photo.'
+      : 'Your new photo is queued for review. Make sure the consumer number is readable.',
+  };
+}
+
 /**
  * Verifies an electricity consumer number against an uploaded bill.
  *
@@ -253,6 +341,7 @@ export async function submitElectricity({ databases, user, body }) {
 
   // One consumer number per account, enforced by a unique index. Checked here
   // for a clear message.
+  let mine = null;
   try {
     const clash = await databases.listDocuments(DB, COL.electricityAccounts, [
       Query.equal('consumerNo', consumerNo),
@@ -274,30 +363,41 @@ export async function submitElectricity({ databases, user, body }) {
         'That consumer number is already linked to another account.',
       );
     }
-    if (existing && existing.userId === user.$id) {
-      return { account: existing, alreadyLinked: true };
-    }
+    if (existing && existing.userId === user.$id) mine = existing;
   } catch (e) {
     if (e instanceof Rejected) throw e;
     console.error('consumer clash check failed', e.message);
   }
 
-  // Digits-only comparison: OCR frequently mangles spacing and dashes.
-  const digitsOnly = (s) => s.replace(/[^0-9]/g, '');
-  const target = digitsOnly(consumerNo);
-  const haystack = digitsOnly(ocrExcerpt);
-
-  let matchScore = 0;
-  if (target.length >= 6 && haystack.includes(target)) {
-    matchScore = 1;
-  } else if (target.length >= 8 && haystack.includes(target.slice(-8))) {
-    // Leading digits are often a region prefix the OCR drops.
-    matchScore = 0.75;
-  } else if (target.length >= 6 && haystack.includes(target.slice(-6))) {
-    matchScore = 0.5;
+  if (mine) {
+    // Already verified: nothing to redo, and a later photo must never
+    // downgrade an account that has been approved.
+    if (mine.status === 'verified') {
+      return {
+        account: mine,
+        alreadyLinked: true,
+        verified: true,
+        matchScore: mine.ocrMatchScore ?? 0,
+        message: 'This account is already verified.',
+      };
+    }
+    // Pending or rejected: the user was told to submit a clearer photo, so
+    // the new one is evaluated. The same document is updated rather than a
+    // second one created: the consumer number is unique, so this is also
+    // what keeps one account per number. Outside the try above on purpose, so
+    // a failed update is reported instead of falling through to a create.
+    return reevaluate(databases, user, mine, {
+      provider,
+      providerCode,
+      billFileId,
+      ocrExcerpt,
+      holderName: str(body.holderName, 128),
+      stateName: str(body.stateName, 64),
+    });
   }
 
-  const verified = matchScore >= 0.75;
+  const matchScore = ocrMatchScore(consumerNo, ocrExcerpt);
+  const verified = matchScore >= VERIFIED_AT;
 
   const account = await databases.createDocument(
     DB,

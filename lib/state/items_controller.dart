@@ -18,6 +18,7 @@ class HandoverToken {
     required this.toState,
     required this.receiverRole,
     this.items = const [],
+    this.rejected = const [],
   });
 
   final String token;
@@ -27,6 +28,10 @@ class HandoverToken {
   final ItemState toState;
   final PartyRole receiverRole;
   final List<String> items;
+
+  /// Scanned items the server refused to include, each as "code — reason".
+  /// They are not part of this handover and stay with the sender.
+  final List<String> rejected;
 
   Duration get remaining {
     final d = expiresAt.difference(DateTime.now());
@@ -81,14 +86,27 @@ class ItemsController extends AsyncNotifier<List<TrackedItem>> {
     return ref.watch(repositoryProvider).myItems(userId);
   }
 
-  Future<void> refresh() async {
-    state = AsyncValue.data(await build());
+  /// Reloads the list. Never throws; returns whether the reload worked.
+  ///
+  /// Same contract as [TreesController.refresh]: a failed reload keeps the
+  /// list already on screen. Only a list that never loaded shows the error.
+  Future<bool> refresh() async {
+    try {
+      state = AsyncValue.data(await build());
+      return true;
+    } catch (e, st) {
+      if (!state.hasValue) state = AsyncValue.error(e, st);
+      return false;
+    }
   }
 
   /// Sender step. Locks the scanned items and returns a short-lived token.
   ///
   /// Location is best-effort: a handover still works indoors without GPS, and
   /// the server simply skips the proximity check when coordinates are absent.
+  ///
+  /// The reload after the server call cannot fail the handover: by then the
+  /// items are locked and the token exists, so the QR code must be shown.
   Future<HandoverToken> issue(List<String> codes) async {
     final fix = await ref.read(locationServiceProvider).quickFix();
 
@@ -110,10 +128,14 @@ class ItemsController extends AsyncNotifier<List<TrackedItem>> {
       toState: ItemState.parse(data['toState']),
       receiverRole: PartyRole.parse(data['receiverRole']),
       items: _codesOf(data['items']),
+      rejected: _skippedCodes(data['rejected']),
     );
   }
 
   /// Receiver step. Consumes the token and advances each item one legal state.
+  ///
+  /// As with [issue], nothing after the server call can turn the claim into an
+  /// error: the token is already burned, so a rescan would be refused.
   Future<ClaimResult> claim(String token) async {
     final fix = await ref.read(locationServiceProvider).quickFix();
 
@@ -159,7 +181,17 @@ class ItemsController extends AsyncNotifier<List<TrackedItem>> {
       try {
         final mine = await ref.read(repositoryProvider).myItems(userId);
         final stillHeld = mine.map((i) => i.code).toSet();
-        if (watching.intersection(stillHeld).isEmpty) {
+        final remaining = watching.intersection(stillHeld);
+        // The claim moves every item it can in one go. If some were skipped
+        // (for example a stage the receiver may not take), the rest still
+        // moved and the sender was paid for them, so "any item gone" means the
+        // handover happened. Waiting for all of them reported a completed
+        // handover as "expired". When the holdings list may be cut short at
+        // its limit, a missing code proves nothing, so all must be gone.
+        final complete = mine.length >= _heldListLimit
+            ? remaining.isEmpty
+            : remaining.length < watching.length;
+        if (complete) {
           await refresh();
           await ref.read(authControllerProvider.notifier).refreshProfile();
           return true;
@@ -213,6 +245,10 @@ final itemJourneyProvider =
     FutureProvider.family<ItemJourney, String>((ref, code) {
   return ref.watch(itemsControllerProvider.notifier).lookup(code);
 });
+
+/// [Repository.myItems]'s default page size. A list this long may be missing
+/// older items, so it cannot prove a given item has left.
+const _heldListLimit = 100;
 
 List<String> _codesOf(Object? v) {
   if (v is! List) return const [];

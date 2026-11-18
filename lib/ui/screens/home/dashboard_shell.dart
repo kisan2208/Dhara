@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../state/air_controller.dart';
+import '../../../state/auth_controller.dart';
 import '../../../state/footprint_controller.dart';
 import '../../../state/items_controller.dart';
 import '../../../state/leaderboard_controller.dart';
@@ -77,7 +78,10 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
           children: [
             HomeScreen(onSeeAllTrees: () => _select(1), onScan: () => _select(2)),
             const TreesScreen(),
-            const ScanScreen(),
+            // Told whether it is on screen: an IndexedStack builds every tab,
+            // and a scanner that was not told would run the camera (and act on
+            // any code in view) from the moment the app opened.
+            ScanScreen(active: _index == 2),
             const RewardsScreen(),
             const ProfileScreen(),
           ],
@@ -202,5 +206,8 @@ Future<void> refreshDashboard(WidgetRef ref) async {
   await Future.wait([
     ref.read(treesControllerProvider.notifier).refresh(),
     ref.read(itemsControllerProvider.notifier).refresh(),
+    // Credits vest and refunds land on the server without any action here,
+    // so the balance and impact tiles need their own reload. Never throws.
+    ref.read(authControllerProvider.notifier).refreshProfile(),
   ]);
 }

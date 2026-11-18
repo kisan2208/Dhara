@@ -1,5 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart' show openAppSettings;
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/haptics.dart';
@@ -54,6 +55,17 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
   bool _busy = false;
   FlashMode _flash = FlashMode.off;
 
+  /// True while [_start] is waiting on the camera. The first-run permission
+  /// dialog sends the app inactive and back to resumed in the middle of that
+  /// wait, and without this the resume started a second camera whose
+  /// controller was never disposed.
+  bool _starting = false;
+
+  /// The last start failed because camera access was refused. Android stops
+  /// showing the permission prompt after a second refusal, so "Try again"
+  /// alone can never recover; the error view then also offers Settings.
+  bool _permissionDenied = false;
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +95,16 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
   }
 
   Future<void> _start() async {
+    if (_starting) return;
+    _starting = true;
+    try {
+      await _startCamera();
+    } finally {
+      _starting = false;
+    }
+  }
+
+  Future<void> _startCamera() async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
@@ -115,9 +137,13 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
         _error = null;
       });
     } on CameraException catch (e) {
+      final denied = e.code.startsWith('CameraAccessDenied') ||
+          e.code == 'CameraAccessRestricted';
+      _permissionDenied = denied;
       _showError(
-        e.code == 'CameraAccessDenied'
-            ? 'Camera permission is needed to take the photo.'
+        denied
+            ? 'Camera permission is needed to take the photo. If you chose '
+                '"Don\u2019t allow", turn it on for Dhara in Settings.'
             : 'Could not start the camera. Please try again.',
       );
     } catch (_) {
@@ -179,7 +205,13 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
         children: [
           if (ready) _Preview(controller: controller)
           else if (_error != null)
-            _CameraError(message: _error!, onRetry: _start)
+            _CameraError(
+              message: _error!,
+              onRetry: _start,
+              // Coming back from Settings resumes the app, and the lifecycle
+              // handler above starts the camera again on its own.
+              onOpenSettings: _permissionDenied ? openAppSettings : null,
+            )
           else
             const Center(
               child: CircularProgressIndicator(color: Colors.white),
@@ -370,10 +402,15 @@ class _ShutterButton extends StatelessWidget {
 }
 
 class _CameraError extends StatelessWidget {
-  const _CameraError({required this.message, required this.onRetry});
+  const _CameraError({
+    required this.message,
+    required this.onRetry,
+    this.onOpenSettings,
+  });
 
   final String message;
   final VoidCallback onRetry;
+  final Future<bool> Function()? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -408,6 +445,17 @@ class _CameraError extends StatelessWidget {
               ),
               child: const Text('Try again'),
             ),
+            if (onOpenSettings case final open?) ...[
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () {
+                  Haptics.tap();
+                  open();
+                },
+                style: TextButton.styleFrom(foregroundColor: AppColors.lime),
+                child: const Text('Open settings'),
+              ),
+            ],
           ],
         ),
       ),

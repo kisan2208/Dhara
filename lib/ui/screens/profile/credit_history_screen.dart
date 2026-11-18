@@ -6,7 +6,9 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/errors.dart';
 import '../../../core/utils/haptics.dart';
+import '../../../data/models/profile.dart';
 import '../../../data/models/reward.dart';
+import '../../../state/auth_controller.dart';
 import '../../../state/rewards_controller.dart';
 import '../../widgets/common.dart';
 
@@ -53,7 +55,10 @@ class CreditHistoryScreen extends ConsumerWidget {
               padding: EdgeInsets.only(top: 20),
               child: LoadingList(count: 5, height: 64),
             ),
-          AsyncValue(:final value?) => _Body(entries: value),
+          AsyncValue(:final value?) => _Body(
+              entries: value,
+              profile: ref.watch(currentProfileProvider),
+            ),
         },
       ),
     );
@@ -61,9 +66,14 @@ class CreditHistoryScreen extends ConsumerWidget {
 }
 
 class _Body extends StatelessWidget {
-  const _Body({required this.entries});
+  const _Body({required this.entries, required this.profile});
 
   final List<CreditEntry> entries;
+
+  /// The totals come from here when available. The list below is only the
+  /// most recent rows, and the server counts a refund as un-spending rather
+  /// than as income; summing the visible rows would get both wrong.
+  final Profile? profile;
 
   @override
   Widget build(BuildContext context) {
@@ -83,12 +93,14 @@ class _Body extends StatelessWidget {
       );
     }
 
-    final earned = entries
-        .where((e) => e.delta > 0)
-        .fold<int>(0, (sum, e) => sum + e.delta);
-    final spent = entries
-        .where((e) => e.delta < 0)
-        .fold<int>(0, (sum, e) => sum - e.delta);
+    final earned = profile?.creditsLifetime ??
+        entries
+            .where((e) => e.delta > 0)
+            .fold<int>(0, (sum, e) => sum + e.delta);
+    final spent = profile?.creditsSpent ??
+        entries
+            .where((e) => e.delta < 0)
+            .fold<int>(0, (sum, e) => sum - e.delta);
 
     final rows = _rowsFor(entries);
 
@@ -140,7 +152,9 @@ class _Body extends StatelessWidget {
     String? month;
 
     for (final entry in entries) {
-      final label = heading.format(entry.occurredAt);
+      // Stored in UTC. Grouped by the user's own calendar, or an early-morning
+      // entry on the 1st lands under the previous month.
+      final label = heading.format(entry.occurredAt.toLocal());
       if (label != month) {
         month = label;
         rows.add(_MonthRow(label.toUpperCase()));
@@ -288,7 +302,8 @@ class _LedgerCard extends StatelessWidget {
                 Text(
                   entry.note.isNotEmpty
                       ? entry.note
-                      : DateFormat('d MMM, h:mm a').format(entry.occurredAt),
+                      : DateFormat('d MMM, h:mm a')
+                          .format(entry.occurredAt.toLocal()),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(

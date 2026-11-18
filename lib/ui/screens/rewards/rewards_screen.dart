@@ -31,6 +31,9 @@ class RewardsScreen extends ConsumerWidget {
             ref.invalidate(rewardsProvider);
             ref.invalidate(myRedemptionsProvider);
             ref.invalidate(electricityAccountProvider);
+            // The balance in the header is the profile's. A refund or newly
+            // vested credits only appear once it is re-read. Never throws.
+            await ref.read(authControllerProvider.notifier).refreshProfile();
           },
           color: AppColors.green,
           child: CustomScrollView(
@@ -838,13 +841,29 @@ class _RedemptionList extends ConsumerWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          format.format(r.requestedAt),
+                          format.format(r.requestedAt.toLocal()),
                           style: const TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w600,
                             color: AppColors.inkSoft,
                           ),
                         ),
+                        // The result sheet that first shows a voucher code can
+                        // be swiped away, and it promises the code can be found
+                        // here again. This is that place.
+                        if (r.voucherCode case final code?
+                            when code.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          SelectableText(
+                            'Code: $code',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              letterSpacing: 0.8,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.forest,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

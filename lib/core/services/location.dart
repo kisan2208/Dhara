@@ -121,6 +121,13 @@ abstract class LocationBackend {
   Future<Position> currentPosition(LocationSettings settings);
   Future<Position?> lastKnownPosition();
   Stream<Position> positionStream(LocationSettings settings);
+
+  /// Whether the user granted precise or only approximate location. Android
+  /// 12+ lets a user pick "Approximate", which is accurate to a few
+  /// kilometres. Defaults to precise so a backend that cannot tell never
+  /// blocks anyone.
+  Future<LocationAccuracyStatus> accuracyStatus() async =>
+      LocationAccuracyStatus.precise;
 }
 
 class GeolocatorBackend extends LocationBackend {
@@ -146,6 +153,16 @@ class GeolocatorBackend extends LocationBackend {
   @override
   Stream<Position> positionStream(LocationSettings settings) =>
       Geolocator.getPositionStream(locationSettings: settings);
+
+  @override
+  Future<LocationAccuracyStatus> accuracyStatus() async {
+    try {
+      return await Geolocator.getLocationAccuracy();
+    } catch (_) {
+      // Not supported on this platform: assume precise rather than block.
+      return LocationAccuracyStatus.precise;
+    }
+  }
 }
 
 /// GPS access with the checks the tree flow depends on.
@@ -239,6 +256,17 @@ class LocationService {
     bool resolveAddress = false,
   }) async {
     await ensureReady();
+
+    // With only approximate access the fix is a few kilometres wide, so the
+    // sampling below could never reach a 20 m reading and the screen would
+    // ask the user to retry forever. Say what is actually wrong instead.
+    if (await backend.accuracyStatus() == LocationAccuracyStatus.reduced) {
+      throw const LocationFailure(
+        LocationProblem.inaccurate,
+        'Dhara only has your approximate location. Turn on "Use precise '
+        'location" for Dhara in your phone\u2019s Settings, then try again.',
+      );
+    }
 
     final deadline = DateTime.now().add(budget);
     Position? best;

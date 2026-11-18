@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -52,6 +53,11 @@ class _PlantTreeScreenState extends ConsumerState<PlantTreeScreen> {
 
   bool _submitting = false;
 
+  /// True while the camera screen is opening or open. A fast double tap would
+  /// otherwise push two cameras and submit the same tree twice: the second is
+  /// refused by the server ("too close") right after the success sheet.
+  bool _capturing = false;
+
   /// Live position, for the map only.
   ///
   /// Deliberately separate from [_fix]: that one comes from `bestFix`, which
@@ -86,7 +92,9 @@ class _PlantTreeScreenState extends ConsumerState<PlantTreeScreen> {
           },
           // Failures are already surfaced by _acquireFix, which the user has a
           // retry button for. Reporting the same problem twice is noise.
-          onError: (Object e) => debugPrint('position stream: $e'),
+          onError: (Object e) {
+            if (kDebugMode) debugPrint('position stream: $e');
+          },
         );
   }
 
@@ -201,14 +209,20 @@ class _PlantTreeScreenState extends ConsumerState<PlantTreeScreen> {
   Future<void> _captureAndSubmit() async {
     final species = _species;
     final fix = _fix;
-    if (species == null || fix == null || _submitting) return;
+    if (species == null || fix == null || _submitting || _capturing) return;
 
-    final path = await CameraCaptureScreen.push(
-      context,
-      title: 'Photograph the sapling',
-      hint: 'Get the whole plant in frame, with the ground visible. '
-          'Photos are compared against past submissions.',
-    );
+    _capturing = true;
+    String? path;
+    try {
+      path = await CameraCaptureScreen.push(
+        context,
+        title: 'Photograph the sapling',
+        hint: 'Get the whole plant in frame, with the ground visible. '
+            'Photos are compared against past submissions.',
+      );
+    } finally {
+      _capturing = false;
+    }
     if (path == null || !mounted) return;
 
     setState(() => _submitting = true);

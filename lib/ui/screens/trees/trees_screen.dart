@@ -322,9 +322,11 @@ class _TreeCard extends StatelessWidget {
                 },
                 icon: const Icon(Icons.camera_alt_rounded, size: 17),
                 label: Text(
-                  tree.untilWindowCloses == null
-                      ? 'Check in now'
-                      : 'Check in \u00B7 ${_closesIn(tree.untilWindowCloses!)} left',
+                  tree.isLate
+                      ? 'Check in now \u00B7 late'
+                      : tree.untilWindowCloses == null
+                          ? 'Check in now'
+                          : 'Check in \u00B7 ${_closesIn(tree.untilWindowCloses!)} left',
                 ),
                 style: FilledButton.styleFrom(
                   backgroundColor: style.color,

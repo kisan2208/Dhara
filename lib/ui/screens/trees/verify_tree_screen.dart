@@ -44,6 +44,10 @@ class _VerifyTreeScreenState extends ConsumerState<VerifyTreeScreen> {
   String? _locationError;
   bool _submitting = false;
 
+  /// True while the camera screen is opening or open, so a double tap cannot
+  /// push two cameras and submit the check-in twice.
+  bool _capturing = false;
+
   Tree get _tree => widget.tree;
 
   @override
@@ -124,15 +128,21 @@ class _VerifyTreeScreenState extends ConsumerState<VerifyTreeScreen> {
 
   Future<void> _captureAndSubmit() async {
     final fix = _fix;
-    if (fix == null || !_canCapture) return;
+    if (fix == null || !_canCapture || _capturing) return;
 
-    final path = await CameraCaptureScreen.push(
-      context,
-      title: 'Photograph ${_tree.displayName}',
-      hint: 'A fresh photo from where you are standing. Reusing an old photo '
-          'will be detected.',
-      overlay: _distance == null ? null : _DistanceBadge(metres: _distance!),
-    );
+    _capturing = true;
+    String? path;
+    try {
+      path = await CameraCaptureScreen.push(
+        context,
+        title: 'Photograph ${_tree.displayName}',
+        hint: 'A fresh photo from where you are standing. Reusing an old photo '
+            'will be detected.',
+        overlay: _distance == null ? null : _DistanceBadge(metres: _distance!),
+      );
+    } finally {
+      _capturing = false;
+    }
     if (path == null || !mounted) return;
 
     setState(() => _submitting = true);
@@ -162,7 +172,8 @@ class _VerifyTreeScreenState extends ConsumerState<VerifyTreeScreen> {
         reasons: result.reasons,
         emoji: vested ? '\u{1F389}' : '\u{1F4F8}',
         message: result.needsReview
-            ? 'Your check-in counted. Credits are released once it is approved.'
+            ? 'Someone will look at it shortly. Once it is approved it counts '
+                'towards this tree and the credits are released.'
             : vested
                 ? 'This tree has completed all ${result.vestingMonths} months. '
                     'Every credit it earned is now fully yours.'

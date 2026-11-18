@@ -351,7 +351,11 @@ class _ElectricityVerifyScreenState
         ),
         const SizedBox(height: 24),
         Text(
-          verified ? 'Account verified' : 'Sent for review',
+          verified
+              ? 'Account verified'
+              : result.alreadyLinked
+                  ? 'Already on file'
+                  : 'Sent for review',
           textAlign: TextAlign.center,
           style: const TextStyle(
             fontSize: 21,

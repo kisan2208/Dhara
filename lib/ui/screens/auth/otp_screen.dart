@@ -27,6 +27,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   Timer? _cooldown;
   int _secondsLeft = 0;
   bool _busy = false;
+  bool _resending = false;
   bool _hasError = false;
 
   @override
@@ -85,15 +86,20 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   }
 
   Future<void> _resend() async {
-    if (_secondsLeft > 0 || _busy) return;
+    if (_secondsLeft > 0 || _busy || _resending) return;
+    // Set before the request, so a double tap cannot send two emails.
+    _resending = true;
     Haptics.tap();
     try {
       await ref.read(authControllerProvider.notifier).resendOtp();
+      if (!mounted) return;
       _startCooldown();
-      if (mounted) showSnack(context, 'A new code is on its way.');
+      showSnack(context, 'A new code is on its way.');
     } on AuthFailure catch (e) {
       Haptics.error();
       if (mounted) showSnack(context, e.message, isError: true);
+    } finally {
+      _resending = false;
     }
   }
 

@@ -59,8 +59,21 @@ class TreesController extends AsyncNotifier<List<Tree>> {
     return ref.watch(repositoryProvider).myTrees(userId);
   }
 
-  Future<void> refresh() async {
-    state = AsyncValue.data(await build());
+  /// Reloads the list. Never throws; returns whether the reload worked.
+  ///
+  /// A failed reload keeps the list the user is already looking at, the same
+  /// way a failed [AuthController.refreshProfile] keeps the profile: a network
+  /// blip must not blank the screen or surface as an error from whatever
+  /// called this. Only a list that never loaded at all shows the error, so the
+  /// screen's retry state still works.
+  Future<bool> refresh() async {
+    try {
+      state = AsyncValue.data(await build());
+      return true;
+    } catch (e, st) {
+      if (!state.hasValue) state = AsyncValue.error(e, st);
+      return false;
+    }
   }
 
   /// Registers a newly planted tree.
@@ -169,6 +182,13 @@ class TreesController extends AsyncNotifier<List<Tree>> {
   }
 
   /// Credits moved, so the cached profile and tree rows are both stale.
+  ///
+  /// Runs only after the server has accepted the submission, so nothing in
+  /// here may throw: the tree is registered and the credits are paid whether
+  /// or not this reload works. Turning a reload failure into an error would
+  /// tell the user it failed, and their retry would then be refused as "too
+  /// close", "already checked in" or a duplicate photo. Both calls below
+  /// swallow their own failures and leave the previous data on screen.
   Future<void> _settle() async {
     await refresh();
     await ref.read(authControllerProvider.notifier).refreshProfile();
