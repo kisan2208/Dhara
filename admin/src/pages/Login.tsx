@@ -27,6 +27,7 @@ export function Login({ message }: { message?: string }) {
   return (
     <main className="login">
       <form className="login-card" onSubmit={submit} aria-labelledby="login-title">
+        <img src="/logo.png" alt="Dhara" style={{ width: 160, maxWidth: "100%" }} />
         <h1 id="login-title">Dhara Admin</h1>
         <p className="muted">Sign in with your administrator or NGO account.</p>
 

@@ -102,7 +102,6 @@ flutter_launcher_icons:
   remove_alpha_ios: true
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/brand/icon_foreground.png"
-  adaptive_icon_monochrome: "assets/brand/icon_foreground.png"
 
 flutter_native_splash:
   color: "#FFFFFF"

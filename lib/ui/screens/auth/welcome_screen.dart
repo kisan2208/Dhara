@@ -37,7 +37,7 @@ class WelcomeScreen extends StatelessWidget {
               child: Column(
                 children: [
                   const Spacer(flex: 2),
-                  const BrandLogo(size: 92)
+                  const BrandLogo(size: 200)
                       .animate()
                       .scale(
                         duration: 550.ms,

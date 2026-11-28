@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -18,51 +19,23 @@ class SplashScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
-    return LightStatusBar(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: AppColors.heroGradient,
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
+          color: Colors.white,
           child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(22),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const BrandLogo(size: 96),
-                )
+                const BrandLogo(size: 280)
                     .animate()
                     .scale(
                       duration: 600.ms,
                       curve: Curves.easeOutBack,
-                      begin: const Offset(0.7, 0.7),
+                      begin: const Offset(0.8, 0.8),
                     )
                     .fadeIn(duration: 400.ms),
-                const SizedBox(height: 28),
-                Text(
-                  'Dhara',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                ).animate(delay: 200.ms).fadeIn().slideY(begin: 0.4, end: 0),
-                const SizedBox(height: 6),
-                Text(
-                  'Green Credits',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.limeSoft,
-                        letterSpacing: 3,
-                      ),
-                ).animate(delay: 340.ms).fadeIn(),
                 const SizedBox(height: 46),
                 if (auth.hasError && !auth.isLoading)
                   _RestoreFailed(
@@ -75,7 +48,7 @@ class SplashScreen extends ConsumerWidget {
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.2,
-                      color: Colors.white70,
+                      color: AppColors.green,
                     ),
                   ).animate(delay: 700.ms).fadeIn(),
               ],
@@ -106,7 +79,7 @@ class _RestoreFailed extends StatelessWidget {
             message,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Colors.white,
+              color: AppColors.forestInk,
               fontSize: 14,
               fontWeight: FontWeight.w600,
               height: 1.4,
@@ -116,7 +89,7 @@ class _RestoreFailed extends StatelessWidget {
           const Text(
             'You are still signed in. Check your connection and try again.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white70, fontSize: 12.5, height: 1.4),
+            style: TextStyle(color: Colors.black54, fontSize: 12.5, height: 1.4),
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
@@ -124,8 +97,8 @@ class _RestoreFailed extends StatelessWidget {
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('Try again'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: const BorderSide(color: Colors.white54),
+              foregroundColor: AppColors.green,
+              side: const BorderSide(color: AppColors.green),
               // The app theme gives outlined buttons an infinite minimum width;
               // inside this centred column that would fail layout.
               minimumSize: const Size(160, 46),

@@ -112,7 +112,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
             children: [
-              const BrandLogo(size: 64)
+              const BrandLogo(size: 120)
                   .animate()
                   .scale(duration: 450.ms, curve: Curves.easeOutBack)
                   .fadeIn(),

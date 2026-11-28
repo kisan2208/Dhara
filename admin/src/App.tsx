@@ -24,7 +24,7 @@ function Shell() {
     <div className="shell">
       <a className="skip" href="#main">Skip to content</a>
       <aside className="side">
-        <div className="brand">Dhara <span>{state.role === 'admin' ? 'Admin' : 'Planting'}</span></div>
+        <div className="brand"><img src="/logo.png" alt="Dhara" style={{ height: 40, verticalAlign: "middle", background: "#fff", borderRadius: 4, padding: 2 }} /> <span>{state.role === 'admin' ? 'Admin' : 'Planting'}</span></div>
         <nav aria-label="Main">
           <ul>
             {navFor(state.role).map((n) => (
